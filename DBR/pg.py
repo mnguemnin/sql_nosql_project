@@ -1,13 +1,22 @@
 import pandas as pd
 import psycopg2
-from psycopg2 import sql
+import logging
+import os
+
+from contextlib import closing
+from datetime import datetime
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 def connect_to_database():
-    host = "localhost"  # Change to your database host
-    database = "postgres"  # Replace with your database name
-    user = "postgres"  # Replace with your username
-    password = "admin"  # Replace with your password
-    port = 5433
+    """Connect to the PostgreSQL database."""
+    # Get database connection info from environment variables or use default values
+    host = os.environ.get("DB_HOST", "localhost")
+    database = os.environ.get("DB_NAME", "postgres")
+    user = os.environ.get("DB_USER", "postgres")
+    password = os.environ.get("DB_PASSWORD", "admin")
+    port = os.environ.get("DB_PORT", 5433)
 
     try:
         connection = psycopg2.connect(
@@ -17,10 +26,10 @@ def connect_to_database():
             password=password,
             port=port
         )
-        print("Database connection successful!")
+        logging.info("Database connection successful!")
         return connection
     except Exception as e:
-        print(f"An error occurred: {e}")
+        logging.error(f"Failed to connect to the database: {e}")
         return None
 
 def safe_int(value):
@@ -28,92 +37,109 @@ def safe_int(value):
     try:
         return int(value)
     except (ValueError, TypeError):
+        logging.warning(f"Invalid integer value: {value}")
         return None
 
-def load_csv_to_db(connection, csv_file):
-    cursor = None
+def safe_date(value):
+    """Convert a value to a valid date string, return None if invalid."""
     try:
-        # Load the CSV file with semicolon as the delimiter
-        data = pd.read_csv(csv_file, delimiter=";")
-        print("CSV file loaded successfully.")
+        return datetime.strptime(value, "%d/%m/%Y").strftime("%Y-%m-%d")
+    except (ValueError, TypeError):
+        logging.warning(f"Invalid date value: {value}")
+        return None
 
-        cursor = connection.cursor()
+def safe_text(value):
+    """Convert a text value to a clean string, return None if invalid."""
+    return str(value).strip() if pd.notnull(value) else None
 
-        # Create table if not exists
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS colleges (
-            rentree_scolaire INT,
-            code_region_academique INT,
-            region_academique TEXT,
-            code_academie INT,
-            academie TEXT,
-            code_departement INT,
-            departement TEXT,
-            code_postal INT,
-            commune TEXT,
-            uai TEXT PRIMARY KEY,
-            denomination_principale TEXT,
-            patronyme TEXT,
-            secteur TEXT,
-            rep INT,
-            rep_plus INT,
-            nombre_eleves_total INT,
-            nombre_eleves_total_hors_segpa_ulis INT,
-            nombre_eleves_segpa INT,
-            nombre_eleves_ulis INT
-        );
-        """)
-        print("Table 'colleges' created or already exists.")
+def load_csv_to_db(connection, csv_file):
+    """Load data from a CSV file into the PostgreSQL database."""
+    if not os.path.exists(csv_file):
+        logging.error(f"CSV file not found: {csv_file}")
+        return
 
-        # Insert data into the table
-        for _, row in data.iterrows():
+    try:
+        # Load the CSV file with comma as the delimiter
+        data = pd.read_csv(csv_file, delimiter=",", encoding="utf-8")
+        logging.info("CSV file loaded successfully.")
+
+        # Validate required columns
+        required_columns = [
+            "beneficiaire_age", "beneficiaire_genre", "organisme",
+            "date_recours_pass_sport", "federation", "region",
+            "departement", "commune"
+        ]
+        if not all(column in data.columns for column in required_columns):
+            missing_columns = [col for col in required_columns if col not in data.columns]
+            logging.error(f"CSV file is missing required columns: {missing_columns}")
+            return
+
+        with closing(connection.cursor()) as cursor:
+            # Create table if not exists
             cursor.execute("""
-            INSERT INTO colleges (
-                rentree_scolaire, code_region_academique, region_academique, code_academie, academie, 
-                code_departement, departement, code_postal, commune, uai, denomination_principale, 
-                patronyme, secteur, rep, rep_plus, nombre_eleves_total, 
-                nombre_eleves_total_hors_segpa_ulis, nombre_eleves_segpa, nombre_eleves_ulis
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (uai) DO NOTHING;
-            """, (
-                row['Rentrée scolaire'],
-                safe_int(row['Code région académique']),
-                row['Région académique'],
-                safe_int(row['Code académie']),
-                row['Académie'],
-                safe_int(row['Code département']),
-                row['Département'],
-                safe_int(row['Code postal']),
-                row['Commune'],
-                row['UAI'],
-                row['Dénomination principale'],
-                row['Patronyme'],
-                row['Secteur'],
-                safe_int(row['REP']),
-                safe_int(row['REP +']),
-                safe_int(row['Nombre d\'élèves total']),
-                safe_int(row['Nombre d\'élèves total hors Segpa hors ULIS']),
-                safe_int(row['Nombre d\'élèves total Segpa']),
-                safe_int(row['Nombre d\'élèves total ULIS'])
-            ))
-        print("Data inserted successfully.")
+            CREATE TABLE IF NOT EXISTS pass_sport_records (
+                id SERIAL PRIMARY KEY,
+                beneficiaire_age INT CHECK (beneficiaire_age > 0),
+                beneficiaire_genre TEXT CHECK (beneficiaire_genre IN ('M', 'F')),
+                organisme TEXT,
+                date_recours_pass_sport DATE,
+                federation TEXT,
+                region TEXT,
+                departement TEXT,
+                commune TEXT
+            );
+            """)
+            logging.info("Table 'pass_sport_records' created or already exists.")
 
-        # Commit changes
-        connection.commit()
-        print("Changes committed.")
+            # Prepare data for insertion
+            rows_to_insert = []
+            for index, row in data.iterrows():
+                try:
+                    beneficiaire_age = safe_int(row['beneficiaire_age'])
+                    beneficiaire_genre = row['beneficiaire_genre'].strip() if row['beneficiaire_genre'] in ['M', 'F'] else None
+                    organisme = safe_text(row['organisme'])
+                    date_recours = safe_date(row['date_recours_pass_sport'])
+                    federation = safe_text(row['federation'])
+                    region = safe_text(row['region'])
+                    departement = safe_text(row['departement'])
+                    commune = safe_text(row['commune'])
+
+                    if beneficiaire_age and beneficiaire_genre and organisme and date_recours:
+                        rows_to_insert.append((
+                            beneficiaire_age, beneficiaire_genre, organisme, date_recours,
+                            federation, region, departement, commune
+                        ))
+                    else:
+                        logging.warning(f"Skipping row {index + 1} due to missing or invalid values: {row.to_dict()}")
+
+                except Exception as e:
+                    logging.error(f"Error processing row {index + 1}: {e}")
+                    logging.error(f"Row data: {row.to_dict()}")
+
+            # Insert data in batches
+            if rows_to_insert:
+                cursor.executemany("""
+                INSERT INTO pass_sport_records (
+                    beneficiaire_age, beneficiaire_genre, organisme, date_recours_pass_sport,
+                    federation, region, departement, commune
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s);
+                """, rows_to_insert)
+                connection.commit()
+                logging.info(f"Inserted {len(rows_to_insert)} rows successfully.")
+            else:
+                logging.warning("No valid rows to insert.")
+
     except Exception as e:
-        print(f"An error occurred while processing the CSV: {e}")
+        logging.error(f"An error occurred while processing the CSV: {e}")
+        connection.rollback()  # Rollback in case of error
     finally:
-        if 'cursor' in locals() and cursor:
-            cursor.close()
+        if connection:
+            connection.close()
+            logging.info("Database connection closed.")
 
 if __name__ == "__main__":
-    csv_file = "../data_college.csv"  # Replace with your CSV file path
+    csv_file = "../data_AJ.csv"  # Replace with your CSV file path
     connection = connect_to_database()
 
     if connection:
-        try:
-            load_csv_to_db(connection, csv_file)
-        finally:
-            connection.close()
-            print("Database connection closed.")
+        load_csv_to_db(connection, csv_file)
