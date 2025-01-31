@@ -2,20 +2,20 @@
 
 // Afficher tous les documents
 print("Afficher tous les documents :");
-printjson(db.college_effectifs.find().toArray());
+printjson(db.data_collection.find().toArray());
 
-// Afficher les effectifs des élèves de 4ème
-print("Afficher les effectifs des élèves de 4ème :");
-printjson(db.college_effectifs.find({}, { nombre_total_de_4emes: 1, _id: 0 }).toArray());
+// Afficher les activations pour les bénéficiaires de genre 'F'
+print("Afficher les activations pour les bénéficiaires de genre 'F' :");
+printjson(db.data_collection.find({ beneficiaire_genre: 'F' }).toArray());
 
-// Afficher les effectifs des élèves de 3ème par sexe
-print("Afficher les effectifs des élèves de 3ème par sexe :");
-printjson(db.college_effectifs.find({}, { '3eme_filles': 1, '3emes_garcons': 1, _id: 0 }).toArray());
+// Afficher les activations pour les bénéficiaires de la région 'Île-de-France'
+print("Afficher les activations pour les bénéficiaires de la région 'Île-de-France' :");
+printjson(db.data_collection.find({ region: 'Île-de-France' }).toArray());
 
-// Afficher les effectifs des élèves de 4ème par langue vivante 1
-print("Afficher les effectifs des élèves de 4ème par langue vivante 1 :");
-printjson(db.college_effectifs.find({}, { nombre_de_4emes_lv1_allemand: 1, nombre_de_4emes_lv1_anglais: 1, nombre_de_4emes_lv1_espagnol: 1, nombre_de_4emes_lv1_autres_langues: 1, _id: 0 }).toArray());
+// Afficher les activations pour les bénéficiaires de la fédération 'FÉDÉRATION FRANÇAISE DE FOOTBALL'
+print("Afficher les activations pour les bénéficiaires de la fédération 'FÉDÉRATION FRANÇAISE DE FOOTBALL' :");
+printjson(db.data_collection.find({ federation: 'FÉDÉRATION FRANÇAISE DE FOOTBALL' }).toArray());
 
-// Afficher les effectifs des élèves de 3ème par langue vivante 2
-print("Afficher les effectifs des élèves de 3ème par langue vivante 2 :");
-printjson(db.college_effectifs.find({}, { nombre_de_3emes_lv2_allemand: 1, nombre_de_3emes_lv2_anglais: 1, nombre_de_3emes_lv2_espagnol: 1, nombre_de_3emes_lv2_italien: 1, nombre_de_3emes_lv2_autres_langues: 1, _id: 0 }).toArray());
+// Afficher les activations pour les bénéficiaires âgés de 10 ans
+print("Afficher les activations pour les bénéficiaires âgés de 10 ans :");
+printjson(db.data_collection.find({ beneficiaire_age: '10' }).toArray());

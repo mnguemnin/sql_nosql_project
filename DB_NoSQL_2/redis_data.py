@@ -1,33 +1,24 @@
 import csv
 import time
-from pymongo import MongoClient
+import redis
 
-# Connexion à MongoDB
-client = MongoClient("mongodb://localhost:27017/")
-db = client["DB_NoSQL_1"]  # Nom de la base de données
-collection = db["data_collection"]  # Nom de la collection
+# Connexion à Redis et sélection de la base de données 1 (DB_NoSQL_2)
+r = redis.StrictRedis(host='localhost', port=6379, db=1)
 
-# Supprimer les documents existants
-collection.delete_many({})
-
+# Supprimer toutes les clés existantes dans la base de données Redis
+r.flushdb()
 
 # Enregistrer le temps de début
 start_time = time.time()
+
 # Lire le fichier CSV en gérant le BOM et le bon séparateur
 with open("data.csv", "r", encoding="utf-8-sig") as file:
     reader = csv.DictReader(file, delimiter=",")  # Définition du bon séparateur
-    data = []
-
     for row in reader:
         cleaned_row = {key.strip(): value.strip() for key, value in row.items()}  # Nettoyage
-        data.append(cleaned_row)
-
-# Insérer les données dans MongoDB
-if data:
-    collection.insert_many(data)
-    print("✅ Importation terminée avec succès dans DB_NoSQl_1.")
-else:
-    print("⚠️ Aucune donnée trouvée dans le fichier CSV.")
+        # Utiliser un identifiant unique pour chaque enregistrement (par exemple, une combinaison de champs)
+        unique_id = f"{cleaned_row['beneficiaire_age']}_{cleaned_row['beneficiaire_genre']}_{cleaned_row['organisme']}_{cleaned_row['date_recours_pass_sport']}"
+        r.hset(unique_id, mapping=cleaned_row)
 
 # Enregistrer le temps de fin
 end_time = time.time()
